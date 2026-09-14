@@ -10,7 +10,7 @@ class EnhancedJSONEncoder(json.JSONEncoder):
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         elif hasattr(o, '__call__'):
-            return o.__name__
+            return o.__name__ 
         elif isinstance(o, Namespace):
             return vars(o)
 

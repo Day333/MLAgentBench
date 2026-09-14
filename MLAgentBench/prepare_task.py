@@ -48,7 +48,11 @@ def prepare_task(benchmark_dir, python="python"):
                 f.write("success")
         print("prepare.py finished")
     else:
-        print("prepare.py not found or already prepared")
+        task_name = os.path.basename(benchmark_dir)
+        if os.path.exists(os.path.join(benchmark_dir, "scripts", "prepare.py")):
+            print(f"{task_name} dataset already prepared")
+        else:
+            print(f"{task_name} dataset needs no preparation")
 
 if __name__ == "__main__":
 

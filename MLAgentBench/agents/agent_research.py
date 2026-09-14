@@ -1,10 +1,12 @@
 """ This file contains the agent class for our AI research agent."""
 import os
 import sys
-import anthropic
 from MLAgentBench.LLM import complete_text_fast, complete_text
 from MLAgentBench.schema import Action
 from .agent import Agent
+
+# text marker used to separate conversation turns in the prompt, independent of the LLM backend
+AI_PROMPT = "\n\nAssistant:"
 
 initial_prompt = """You are a helpful research assistant. You have access to the following tools:
 {tools_prompt}
@@ -92,7 +94,7 @@ class ResearchAgent(Agent):
                 action_string = ""
                 action_string = self.print_action(self.history_steps[idx]["action"], self.valid_format_entires)
 
-                prompt += anthropic.AI_PROMPT + "\n"+ action_string + "\nObservation:"
+                prompt += AI_PROMPT + "\n"+ action_string + "\nObservation:"
                 if curr_step - idx > last_observation_step:
                     prompt += "<Done>\n\n"
                 else:
@@ -118,7 +120,7 @@ class ResearchAgent(Agent):
                     valid_response = True
                 except:
                     print("Step", curr_step, file=sys.stderr)
-                    print(anthropic.AI_PROMPT + "\n" + completion + "\nObservation:\n", file=sys.stderr)
+                    print(AI_PROMPT + "\n" + completion + "\nObservation:\n", file=sys.stderr)
                     print("Response is invalid and discarded", file=sys.stderr)
                     prompt += "\n\n Your response was in incorrect format. Please provide a valid response with all entries: " + ", ".join(self.valid_format_entires) + "\n\n"
                 else:
@@ -150,7 +152,7 @@ class ResearchAgent(Agent):
 
             with open(os.path.join(self.log_dir , "main_log"), "a", 1) as f:
                 f.write("Step " + str(curr_step) + ":\n")
-                f.write(anthropic.AI_PROMPT + "\n" + self.print_action(entries, self.valid_format_entires) + "\nObservation:\n")
+                f.write(AI_PROMPT + "\n" + self.print_action(entries, self.valid_format_entires) + "\nObservation:\n")
 
 
             ########################################

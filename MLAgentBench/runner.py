@@ -9,16 +9,12 @@ from MLAgentBench.environment import Environment
 from MLAgentBench.agents.agent import Agent, SimpleActionAgent, ReasoningActionAgent
 from MLAgentBench.agents.agent_research import ResearchAgent
 from MLAgentBench.agents.agent_langchain  import LangChainAgent
-try:
-    from MLAgentBench.agents.agent_autogpt  import AutoGPTAgent
-except:
-    print("Failed to import AutoGPTAgent; Make sure you have installed the autogpt dependencies if you want to use it.")
-
 
 def run(agent_cls, args):
     with Environment(args) as env:
 
         print("=====================================")
+        
         research_problem, benchmark_folder_name = env.get_task_description()
         print("Benchmark folder name: ", benchmark_folder_name)
         print("Research problem: ", research_problem)
@@ -45,7 +41,6 @@ if __name__ == "__main__":
     parser.add_argument("--max-time", type=int, default=5* 60 * 60, help="max time")
     parser.add_argument("--device", type=int, default=0, help="device id")
     parser.add_argument("--python", type=str, default="python", help="python command")
-    parser.add_argument("--interactive", action="store_true", help="interactive mode")
     parser.add_argument("--resume", type=str, default=None, help="resume from a previous run")
     parser.add_argument("--resume-step", type=int, default=0, help="the step to resume from")
 
@@ -71,10 +66,21 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
+
     print(args, file=sys.stderr)
+
     if not args.retrieval or args.agent_type != "ResearchAgent":
         # should not use these actions when there is no retrieval
         args.actions_remove_from_prompt.extend(["Retrieval from Research Log", "Append Summary to Research Log", "Reflection"])
+
     LLM.FAST_MODEL = args.fast_llm_name
-    run(getattr(sys.modules[__name__], args.agent_type), args)
-    
+
+    agent_classes = {
+        "Agent": Agent,
+        "SimpleActionAgent": SimpleActionAgent,
+        "ReasoningActionAgent": ReasoningActionAgent,
+        "ResearchAgent": ResearchAgent,
+        "LangChainAgent": LangChainAgent,
+    }
+    run(agent_classes[args.agent_type], args)
+     

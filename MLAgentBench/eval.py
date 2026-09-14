@@ -27,18 +27,21 @@ class EnhancedJSONEncoder(json.JSONEncoder):
 
         return super().default(o)
 
+def _read_if_exists(path):
+    return open(path, "r").read() if os.path.exists(path) else ""
+
 def oom_error(path):
     log = path.replace("trace.json", "../log")
     main_log = path.replace("trace.json", "../agent_log/main_log")
     message = "CUDA out of memory"
-    return (message in open(log, "r").read()) or (message in open(main_log, "r").read())
-    
+    return (message in _read_if_exists(log)) or (message in _read_if_exists(main_log))
+
 
 def connection_error(path):
     log = path.replace("trace.json", "../log")
     main_log = path.replace("trace.json", "../agent_log/main_log")
     bad = ["You exceeded your current quota, please check your plan and billing details.", "Error: 'text-similarity-ada-001'", "Error: 'text-embedding-ada-001'"]
-    return ("Connection aborted" in open(log, "r").read()) or (any([b in open(main_log, "r").read() for b in bad])) 
+    return ("Connection aborted" in _read_if_exists(log)) or (any([b in _read_if_exists(main_log) for b in bad]))
 
 def error(path):
     return os.path.exists(os.path.join(path.replace("trace.json", ""), "error.txt")) or not os.path.exists(os.path.join(path.replace("trace.json", ""), "overall_time.txt"))

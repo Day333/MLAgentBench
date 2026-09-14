@@ -8,43 +8,38 @@ from .schema import TooLongPromptError, LLMError
 enc = tiktoken.get_encoding("cl100k_base")
 
 try:
-    from helm.common.authentication import Authentication
-    from helm.common.request import Request, RequestResult
-    from helm.proxy.accounts import Account
-    from helm.proxy.services.remote_service import RemoteService
-    # setup CRFM API
-    auth = Authentication(api_key=open("crfm_api_key.txt").read().strip())
-    service = RemoteService("https://crfm-models.stanford.edu")
-    account: Account = service.get_account(auth)
-except Exception as e:
-    print(e)
-    print("Could not load CRFM API key crfm_api_key.txt.")
-
-try:   
     import anthropic
     # setup anthropic API key
     anthropic_client = anthropic.Anthropic(api_key=open("claude_api_key.txt").read().strip())
 except Exception as e:
     print(e)
     print("Could not load anthropic API key claude_api_key.txt.")
-    
+
+# anthropic-sdk-python >=1.0 removed the legacy HUMAN_PROMPT/AI_PROMPT constants along with
+# the old Completions API. They are used here purely as conversation-turn text markers, so we
+# restore their historical values for compatibility with modern SDK versions.
+HUMAN_PROMPT = getattr(anthropic, "HUMAN_PROMPT", "\n\nHuman:")
+AI_PROMPT = getattr(anthropic, "AI_PROMPT", "\n\nAssistant:")
+
 try:
     import openai
     # setup OpenAI API key
-    openai.organization, openai.api_key  =  open("openai_api_key.txt").read().strip().split(":")    
-    os.environ["OPENAI_API_KEY"] = openai.api_key 
+    openai.organization, openai.api_key  =  open("openai_api_key.txt").read().strip().split(":")
+    os.environ["OPENAI_API_KEY"] = openai.api_key
 except Exception as e:
     print(e)
     print("Could not load OpenAI API key openai_api_key.txt.")
 
 try:
-    import vertexai
-    from vertexai.preview.generative_models import GenerativeModel, Part
-    from google.cloud.aiplatform_v1beta1.types import SafetySetting, HarmCategory
-    vertexai.init(project=PROJECT_ID, location="us-central1")
+    import openai
+    # setup Qwen (Alibaba Cloud Model Studio / DashScope OpenAI-compatible) client
+    qwen_client = openai.OpenAI(
+        api_key=open("qwen_api_key.txt").read().strip(),
+        base_url="https://ws-r1de3xs467h5tod7.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    )
 except Exception as e:
     print(e)
-    print("Could not load VertexAI API.")
+    print("Could not load Qwen API key qwen_api_key.txt.")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import StoppingCriteria, StoppingCriteriaList
@@ -70,8 +65,8 @@ def log_to_file(log_file, prompt, completion, model, max_tokens_to_sample):
     """ Log the prompt and completion to a file."""
     with open(log_file, "a") as f:
         f.write("\n===================prompt=====================\n")
-        f.write(f"{anthropic.HUMAN_PROMPT} {prompt} {anthropic.AI_PROMPT}")
-        num_prompt_tokens = len(enc.encode(f"{anthropic.HUMAN_PROMPT} {prompt} {anthropic.AI_PROMPT}"))
+        f.write(f"{HUMAN_PROMPT} {prompt} {AI_PROMPT}")
+        num_prompt_tokens = len(enc.encode(f"{HUMAN_PROMPT} {prompt} {AI_PROMPT}"))
         f.write(f"\n==================={model} response ({max_tokens_to_sample})=====================\n")
         f.write(completion)
         num_sample_tokens = len(enc.encode(completion))
@@ -114,33 +109,10 @@ def complete_text_hf(prompt, stop_sequences=[], model="huggingface/codellama/Cod
     return completion
 
 
-def complete_text_gemini(prompt, stop_sequences=[], model="gemini-pro", max_tokens_to_sample = 2000, temperature=0.5, log_file=None, **kwargs):
-    """ Call the gemini API to complete a prompt."""
-    # Load the model
-    model = GenerativeModel("gemini-pro")
-    # Query the model
-    parameters = {
-            "temperature": temperature,
-            "max_output_tokens": max_tokens_to_sample,
-            "stop_sequences": stop_sequences,
-            **kwargs
-        }
-    safety_settings = {
-            harm_category: SafetySetting.HarmBlockThreshold(SafetySetting.HarmBlockThreshold.BLOCK_NONE)
-            for harm_category in iter(HarmCategory)
-        }
-    safety_settings = {
-        }
-    response = model.generate_content( [prompt], generation_config=parameters, safety_settings=safety_settings)
-    completion = response.text
-    if log_file is not None:
-        log_to_file(log_file, prompt, completion, model, max_tokens_to_sample)
-    return completion
-
-def complete_text_claude(prompt, stop_sequences=[anthropic.HUMAN_PROMPT], model="claude-v1", max_tokens_to_sample = 2000, temperature=0.5, log_file=None, messages=None, **kwargs):
+def complete_text_claude(prompt, stop_sequences=[HUMAN_PROMPT], model="claude-v1", max_tokens_to_sample = 2000, temperature=0.5, log_file=None, messages=None, **kwargs):
     """ Call the Claude API to complete a prompt."""
 
-    ai_prompt = anthropic.AI_PROMPT
+    ai_prompt = AI_PROMPT
     if "ai_prompt" in kwargs is not None:
         ai_prompt = kwargs["ai_prompt"]
 
@@ -172,7 +144,7 @@ def complete_text_claude(prompt, stop_sequences=[anthropic.HUMAN_PROMPT], model=
                     pass
         else:
             rsp = anthropic_client.completions.create(
-                prompt=f"{anthropic.HUMAN_PROMPT} {prompt} {ai_prompt}",
+                prompt=f"{HUMAN_PROMPT} {prompt} {ai_prompt}",
                 stop_sequences=stop_sequences,
                 model=model,
                 temperature=temperature,
@@ -190,53 +162,6 @@ def complete_text_claude(prompt, stop_sequences=[anthropic.HUMAN_PROMPT], model=
     
     if log_file is not None:
         log_to_file(log_file, prompt, completion, model, max_tokens_to_sample)
-    return completion
-
-
-def get_embedding_crfm(text, model="openai/gpt-4-0314"):
-    request = Request(model="openai/text-embedding-ada-002", prompt=text, embedding=True)
-    request_result: RequestResult = service.make_request(auth, request)
-    return request_result.embedding 
-    
-def complete_text_crfm(prompt="", stop_sequences = [], model="openai/gpt-4-0314",  max_tokens_to_sample=2000, temperature = 0.5, log_file=None, messages = None, **kwargs):
-    
-    random = log_file
-    if messages:
-        request = Request(
-                prompt=prompt, 
-                messages=messages,
-                model=model, 
-                stop_sequences=stop_sequences,
-                temperature = temperature,
-                max_tokens = max_tokens_to_sample,
-                random = random
-            )
-    else:
-        # print("model", model)
-        # print("max_tokens", max_tokens_to_sample)
-        request = Request(
-                # model_deployment=model,
-                prompt=prompt, 
-                model=model, 
-                stop_sequences=stop_sequences,
-                temperature = temperature,
-                max_tokens = max_tokens_to_sample,
-                random = random
-        )
-    
-    try:      
-        request_result: RequestResult = service.make_request(auth, request)
-    except Exception as e:
-        # probably too long prompt
-        print(e)
-        raise TooLongPromptError()
-    
-    if request_result.success == False:
-        print(request.error)
-        raise LLMError(request.error)
-    completion = request_result.completions[0].text
-    if log_file is not None:
-        log_to_file(log_file, prompt if not messages else str(messages), completion, model, max_tokens_to_sample)
     return completion
 
 
@@ -260,19 +185,32 @@ def complete_text_openai(prompt, stop_sequences=[], model="gpt-3.5-turbo", max_t
         log_to_file(log_file, prompt, completion, model, max_tokens_to_sample)
     return completion
 
+def complete_text_qwen(prompt, stop_sequences=[], model="qwen-plus", max_tokens_to_sample=2000, temperature=0.5, log_file=None, **kwargs):
+    """ Call the Qwen API (Alibaba Cloud Model Studio, OpenAI-compatible mode) to complete a prompt."""
+    messages = [{"role": "user", "content": prompt}]
+    response = qwen_client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens_to_sample,
+        stop=stop_sequences or None,
+        **kwargs
+    )
+    completion = response.choices[0].message.content
+    if log_file is not None:
+        log_to_file(log_file, prompt, completion, model, max_tokens_to_sample)
+    return completion
+
 def complete_text(prompt, log_file, model, **kwargs):
     """ Complete text using the specified model with appropriate API. """
     
     if model.startswith("claude"):
         # use anthropic API
-        completion = complete_text_claude(prompt, stop_sequences=[anthropic.HUMAN_PROMPT, "Observation:"], log_file=log_file, model=model, **kwargs)
-    elif model.startswith("gemini"):
-        completion = complete_text_gemini(prompt, stop_sequences=["Observation:"], log_file=log_file, model=model, **kwargs)
+        completion = complete_text_claude(prompt, stop_sequences=[HUMAN_PROMPT, "Observation:"], log_file=log_file, model=model, **kwargs)
     elif model.startswith("huggingface"):
         completion = complete_text_hf(prompt, stop_sequences=["Observation:"], log_file=log_file, model=model, **kwargs)
-    elif "/" in model:
-        # use CRFM API since this specifies organization like "openai/..."
-        completion = complete_text_crfm(prompt, stop_sequences=["Observation:"], log_file=log_file, model=model, **kwargs)
+    elif model.startswith("qwen"):
+        completion = complete_text_qwen(prompt, stop_sequences=["Observation:"], log_file=log_file, model=model, **kwargs)
     else:
         # use OpenAI API
         completion = complete_text_openai(prompt, stop_sequences=["Observation:"], log_file=log_file, model=model, **kwargs)
